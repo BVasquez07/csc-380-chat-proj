@@ -9,10 +9,15 @@
 #include <getopt.h>
 #include "dh.h"
 #include "keys.h"
+#include "util.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 1024
 #endif
+
+unsigned char session_k_enc[32]; // AES key
+unsigned char session_k_mac[32]; // HMAC key
+
 
 static GtkTextBuffer* tbuf; /* transcript buffer */
 static GtkTextBuffer* mbuf; /* message buffer */
@@ -39,7 +44,7 @@ static void error(const char *msg)
 }
 
 
-int run_handshake(int sockfd, int is_client) {
+int handshake(int sockfd, int is_client) {
     dhKey my_dh;
     initKey(&my_dh);
     dhGenk(&my_dh);  // getting the ephemeral secret key
@@ -73,7 +78,7 @@ int run_handshake(int sockfd, int is_client) {
     fprintf(stderr, "\n");
 
     mpz_clear(peer_pk);
-    freeKey(&my_dh);
+    shredKey(&my_dh);
     return 0;
 }
 
@@ -266,6 +271,8 @@ int main(int argc, char *argv[])
 	} else {
 		initServerNet(port);
 	}
+	handshake(sockfd, isclient); // run the handshake
+	// check to make sure the ephemeral key is being regen each new message!
 
 	/* setup GTK... */
 	GtkBuilder* builder;
