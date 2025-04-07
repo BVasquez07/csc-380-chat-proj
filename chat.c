@@ -43,6 +43,17 @@ static void error(const char *msg)
 	exit(EXIT_FAILURE);
 }
 
+// handshake() makes ephemeral keys and sends them to the other side
+// and receives the other side's ephemeral key.
+
+// It also generates the shared key material and splits it into two keys:
+// one for AES encryption and one for HMAC authentication.
+// The keys are stored in session_k_enc and session_k_mac.
+
+// Once keys are used for encryption and authentication, they should be shredded
+// to prevent memory leaks and to ensure that the keys are not left in memory.
+// Therefore, even if network traffic is intercepted, the keys cannot be used to decrypt the data
+// since keys are shredded after use.
 
 int handshake(int sockfd, int is_client) {
     dhKey my_dh;
