@@ -38,6 +38,46 @@ static void error(const char *msg)
 	exit(EXIT_FAILURE);
 }
 
+
+int run_handshake(int sockfd, int is_client) {
+    dhKey my_dh;
+    initKey(&my_dh);
+    dhGenk(&my_dh);  // getting the ephemeral secret key
+    char my_pub_buf[2048];
+    size_t pub_written = 0;
+    Z2BYTES((unsigned char*)my_pub_buf, &pub_written, my_dh.PK);
+    if (send(sockfd, my_pub_buf, pub_written, 0) == -1)
+        error("send DH public key failed");
+    unsigned char peer_pub_buf[2048];
+    ssize_t received = recv(sockfd, peer_pub_buf, sizeof(peer_pub_buf), 0);
+    if (received <= 0) error("recv DH public key failed");
+
+    mpz_t peer_pk;
+    mpz_init(peer_pk);
+    BYTES2Z(peer_pk, peer_pub_buf, received);
+
+    // making use of dhFinal
+    unsigned char key_material[64];
+    dhFinal(my_dh.SK, my_dh.PK, peer_pk, key_material, sizeof(key_material));
+
+    memcpy(session_k_enc, key_material, 32);       
+    memcpy(session_k_mac, key_material + 32, 32);   
+
+
+	// testing the output
+    fprintf(stderr, "[DEBUG] Shared AES key: ");
+    for (int i = 0; i < 32; i++) fprintf(stderr, "%02x", session_k_enc[i]);
+    fprintf(stderr, "\n");
+    fprintf(stderr, "[DEBUG] Shared HMAC key: ");
+    for (int i = 0; i < 32; i++) fprintf(stderr, "%02x", session_k_mac[i]);
+    fprintf(stderr, "\n");
+
+    mpz_clear(peer_pk);
+    freeKey(&my_dh);
+    return 0;
+}
+
+
 int initServerNet(int port)
 {
 	int reuse = 1;
