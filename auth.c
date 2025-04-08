@@ -6,9 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-int sign_data(const char* priv_key_path,
-              const unsigned char* data, size_t data_len,
-              unsigned char** sig_out, size_t* sig_len) {
+int sign_data(const char* priv_key_path, const unsigned char* data, size_t data_len, unsigned char** sig_out, size_t* sig_len) {
     FILE* fp = fopen(priv_key_path, "r");
     if (!fp) return -1;
 

@@ -14,7 +14,6 @@
 #include "util.h"
 #include "auth.h"
 #include <openssl/sha.h>
-#include "auth.c"
 
 #ifndef PATH_MAX
 #define PATH_MAX 1024
@@ -119,8 +118,8 @@ int handshake(int sockfd, int is_client) {
 
     // Sign the transcript hash
     unsigned char* sig = NULL;
-    size_t sig_len = 0;
-    const char* my_key_file = is_client ? "client_private.pem" : "server_private.pem";
+    size_t sig_len = 0; 
+    const char* my_key_file = is_client ? "./client_private.pem" : "./server_private.pem";
     if (sign_data(my_key_file, digest, sizeof(digest), &sig, &sig_len) != 0)
         error("Signing handshake failed");
 
@@ -137,7 +136,7 @@ int handshake(int sockfd, int is_client) {
     recv(sockfd, peer_sig, peer_sig_len, MSG_WAITALL);
 
     // Verify peer's signature
-    const char* peer_key_file = is_client ? "server_public.pem" : "client_public.pem";
+    const char* peer_key_file = is_client ? "./server_public.pem" : "./client_public.pem";
     int result = verify_signature(peer_key_file, digest, sizeof(digest), peer_sig, peer_sig_len);
     if (result != 1) error("Signature verification failed");
 
