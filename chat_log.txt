@@ -1,0 +1,30 @@
+Plaintext: hello, how are you
+Ciphertext: 6c3438111404a41cc751e163f57e41f2fc99f4e2d6d1b6ea991bc1200aa421c6
+
+Ciphertext: 6c3438111404a41cc751e163f57e41f2fc99f4e2d6d1b6ea991bc1200aa421c6
+Plaintext: hello, how are you
+
+Plaintext: i am fine thank you
+Ciphertext: 596e7552d1d5ab483edb7855836e73b4946e478cca52d475a72d357c437a1698
+
+Ciphertext: 596e7552d1d5ab483edb7855836e73b4946e478cca52d475a72d357c437a1698
+Plaintext: i am fine thank you
+
+Plaintext: meow
+Ciphertext: c0febe55cfe8487bcaa6043d5d91326f
+
+Ciphertext: c0febe55cfe8487bcaa6043d5d91326f
+Plaintext: meow
+
+Plaintext: meow
+Ciphertext: 9b4eac95969d279bff6271ec6a6d82ff
+
+Ciphertext: 9b4eac95969d279bff6271ec6a6d82ff
+Plaintext: meow
+
+Plaintext: meow
+Ciphertext: 6ef21030fe52f3c7806ec9ecc573ffdf
+
+Ciphertext: 6ef21030fe52f3c7806ec9ecc573ffdf
+Plaintext: meow
+

@@ -6,6 +6,8 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/rand.h>
+#include <openssl/hmac.h>
 #include <getopt.h>
 #include "dh.h"
 #include "keys.h"
@@ -198,38 +200,86 @@ static void tsappend(char* message, char** tagnames, int ensurenewline)
 	gtk_text_buffer_delete_mark(tbuf,mark);
 }
 
-static void sendMessage(GtkWidget* w /* <-- msg entry widget */, gpointer /* data */)
+static void sendMessage(GtkWidget* w, gpointer)
 {
-	char* tags[2] = {"self",NULL};
-	tsappend("me: ",tags,0);
-	GtkTextIter mstart; /* start of message pointer */
-	GtkTextIter mend;   /* end of message pointer */
-	gtk_text_buffer_get_start_iter(mbuf,&mstart);
-	gtk_text_buffer_get_end_iter(mbuf,&mend);
-	char* message = gtk_text_buffer_get_text(mbuf,&mstart,&mend,1);
-	size_t len = g_utf8_strlen(message,-1);
-	/* XXX we should probably do the actual network stuff in a different
-	 * thread and have it call this once the message is actually sent. */
-	ssize_t nbytes;
-	if ((nbytes = send(sockfd,message,len,0)) == -1)
+	char* tags[2] = {"self", NULL};
+	tsappend("me: ", tags, 0);
+
+	GtkTextIter mstart, mend;
+	gtk_text_buffer_get_start_iter(mbuf, &mstart);
+	gtk_text_buffer_get_end_iter(mbuf, &mend);
+	char* message = gtk_text_buffer_get_text(mbuf, &mstart, &mend, 1);
+	size_t utf8_len = strlen(message); // not g_utf8_strlen, just raw bytes
+
+	// --- Generate IV ---
+	unsigned char iv[16];
+	if (!RAND_bytes(iv, sizeof(iv)))
+		error("RAND_bytes failed");
+
+	// --- Encrypt message ---
+	EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+	unsigned char ciphertext[512];
+	int enc_len = 0, final_len = 0;
+
+	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, session_k_enc, iv);
+	EVP_EncryptUpdate(ctx, ciphertext, &enc_len, (unsigned char*)message, utf8_len);
+	EVP_EncryptFinal_ex(ctx, ciphertext + enc_len, &final_len);
+	enc_len += final_len;
+	EVP_CIPHER_CTX_free(ctx);
+
+	// --- Compute HMAC ---
+	unsigned char hmac[32];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+	HMAC_CTX* hctx = HMAC_CTX_new();
+	HMAC_Init_ex(hctx, session_k_mac, 32, EVP_sha256(), NULL);
+	HMAC_Update(hctx, iv, sizeof(iv));
+	HMAC_Update(hctx, ciphertext, enc_len);
+	HMAC_Final(hctx, hmac, NULL);
+	HMAC_CTX_free(hctx);
+#pragma GCC diagnostic pop
+
+	// Open the log file
+    FILE* log_file = fopen("chat_log.txt", "a");
+    if (!log_file) {
+        perror("Failed to open log file");
+        return;
+    }
+
+    // Log the plaintext
+    fprintf(log_file, "Plaintext: %s\n", message);
+
+    // Log the ciphertext in hex format
+    fprintf(log_file, "Ciphertext: ");
+    for (int i = 0; i < enc_len; i++) {
+        fprintf(log_file, "%02x", ciphertext[i]);
+    }
+    fprintf(log_file, "\n\n");
+
+    fclose(log_file);
+
+	// --- Send message: [len][iv][ciphertext][hmac] ---
+	uint16_t clen_net = htons(enc_len);
+	if (send(sockfd, &clen_net, sizeof(clen_net), 0) == -1 ||
+	    send(sockfd, iv, sizeof(iv), 0) == -1 ||
+	    send(sockfd, ciphertext, enc_len, 0) == -1 ||
+	    send(sockfd, hmac, sizeof(hmac), 0) == -1)
 		error("send failed");
 
-	tsappend(message,NULL,1);
+	tsappend(message, NULL, 1);
 	free(message);
-	/* clear message text and reset focus */
-	gtk_text_buffer_delete(mbuf,&mstart,&mend);
+	gtk_text_buffer_delete(mbuf, &mstart, &mend);
 	gtk_widget_grab_focus(w);
 }
 
-static gboolean shownewmessage(gpointer msg)
-{
-	char* tags[2] = {"friend",NULL};
-	char* friendname = "mr. friend: ";
-	tsappend(friendname,tags,0);
-	char* message = (char*)msg;
-	tsappend(message,NULL,1);
-	free(message);
-	return 0;
+static gboolean shownewmessage(gpointer msg) {
+    char* tags[2] = {"friend", NULL};
+    char* friendname = "mr. friend: ";
+    tsappend(friendname, tags, 0);
+    char* message = (char*)msg;
+    tsappend(message, NULL, 1);
+    free(message);
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -337,22 +387,80 @@ int main(int argc, char *argv[])
 void* recvMsg(void*)
 {
 	size_t maxlen = 512;
-	char msg[maxlen+2]; /* might add \n and \0 */
+	unsigned char iv[16];
+	unsigned char ciphertext[maxlen];
+	unsigned char received_hmac[32];
+	unsigned char computed_hmac[32];
+
+	uint16_t clen_net;
 	ssize_t nbytes;
+
 	while (1) {
-		if ((nbytes = recv(sockfd,msg,maxlen,0)) == -1)
-			error("recv failed");
-		if (nbytes == 0) {
-			/* XXX maybe show in a status message that the other
-			 * side has disconnected. */
-			return 0;
+		nbytes = recv(sockfd, &clen_net, sizeof(clen_net), MSG_WAITALL);
+		if (nbytes <= 0) return 0;
+		uint16_t clen = ntohs(clen_net);
+
+		nbytes = recv(sockfd, iv, sizeof(iv), MSG_WAITALL);
+		if (nbytes <= 0) return 0;
+
+		nbytes = recv(sockfd, ciphertext, clen, MSG_WAITALL);
+		if (nbytes <= 0) return 0;
+
+		nbytes = recv(sockfd, received_hmac, sizeof(received_hmac), MSG_WAITALL);
+		if (nbytes <= 0) return 0;
+
+		// HMAC Verification
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+		HMAC_CTX* hctx = HMAC_CTX_new();
+		HMAC_Init_ex(hctx, session_k_mac, 32, EVP_sha256(), NULL);
+		HMAC_Update(hctx, iv, sizeof(iv));
+		HMAC_Update(hctx, ciphertext, clen);
+		HMAC_Final(hctx, computed_hmac, NULL);
+		HMAC_CTX_free(hctx);
+#pragma GCC diagnostic pop
+
+		if (memcmp(received_hmac, computed_hmac, 32) != 0) {
+			fprintf(stderr, "HMAC verification failed!\n");
+			continue;
 		}
-		char* m = malloc(maxlen+2);
-		memcpy(m,msg,nbytes);
-		if (m[nbytes-1] != '\n')
-			m[nbytes++] = '\n';
-		m[nbytes] = 0;
-		g_main_context_invoke(NULL,shownewmessage,(gpointer)m);
+
+		// Decrypt
+		unsigned char plaintext[maxlen + 1];
+		EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+		int dec_len = 0, final_len = 0;
+
+		EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, session_k_enc, iv);
+		EVP_DecryptUpdate(ctx, plaintext, &dec_len, ciphertext, clen);
+		EVP_DecryptFinal_ex(ctx, plaintext + dec_len, &final_len);
+		dec_len += final_len;
+		EVP_CIPHER_CTX_free(ctx);
+
+		plaintext[dec_len] = '\0';
+		char* m = malloc(dec_len + 1);
+		memcpy(m, plaintext, dec_len + 1);
+
+		// Open the log file
+        FILE* log_file = fopen("chat_log.txt", "a");
+        if (!log_file) {
+            perror("Failed to open log file");
+            continue;
+        }
+
+        // Log the ciphertext in hex format
+        fprintf(log_file, "Ciphertext: ");
+        for (int i = 0; i < clen; i++) {
+            fprintf(log_file, "%02x", ciphertext[i]);
+        }
+        fprintf(log_file, "\n");
+
+        // Log the plaintext
+        fprintf(log_file, "Plaintext: %s\n\n", plaintext);
+
+        fclose(log_file);
+
+		g_main_context_invoke(NULL, shownewmessage, (gpointer)m);
 	}
 	return 0;
 }
+
