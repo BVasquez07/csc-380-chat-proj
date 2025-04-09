@@ -28,3 +28,17 @@ Ciphertext: 6ef21030fe52f3c7806ec9ecc573ffdf
 Ciphertext: 6ef21030fe52f3c7806ec9ecc573ffdf
 Plaintext: meow
 
+Plaintext:  testing
+
+Ciphertext: d53632ccd43fd39a3ff90a34045fe01b
+
+Ciphertext: d53632ccd43fd39a3ff90a34045fe01b
+Plaintext:  testing
+
+
+Plaintext: hello world
+Ciphertext: f90030ead10184f0e4946ded0640af8f
+
+Ciphertext: f90030ead10184f0e4946ded0640af8f
+Plaintext: hello world
+

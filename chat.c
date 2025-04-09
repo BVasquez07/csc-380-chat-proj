@@ -82,10 +82,10 @@ int handshake(int sockfd, int is_client) {
     dhFinal(my_dh.SK, my_dh.PK, peer_pk, key_material, sizeof(key_material));
     memcpy(session_k_enc, key_material, 32);      
     memcpy(session_k_mac, key_material + 32, 32);
-    fprintf(stderr, "[DEBUG] Shared AES key: ");
+    fprintf(stderr, " Shared AES key: ");
     for (int i = 0; i < 32; i++) fprintf(stderr, "%02x", session_k_enc[i]);
     fprintf(stderr, "\n");
-    fprintf(stderr, "[DEBUG] Shared HMAC key: ");
+    fprintf(stderr, " Shared HMAC key: ");
     for (int i = 0; i < 32; i++) fprintf(stderr, "%02x", session_k_mac[i]);
     fprintf(stderr, "\n");
 
@@ -96,18 +96,20 @@ int handshake(int sockfd, int is_client) {
     size_t peer_pub_len = received;
 
     SHA256_CTX sha_ctx;
-    unsigned char digest[SHA256_DIGEST_LENGTH];
-    SHA256_Init(&sha_ctx);
-    if (is_client) {
-        SHA256_Update(&sha_ctx, my_pub_bytes, my_pub_len);
-        SHA256_Update(&sha_ctx, peer_pub_bytes, peer_pub_len);
-        SHA256_Update(&sha_ctx, "client", 6);
-    } else {
-        SHA256_Update(&sha_ctx, peer_pub_bytes, peer_pub_len);
-        SHA256_Update(&sha_ctx, my_pub_bytes, my_pub_len);
-        SHA256_Update(&sha_ctx, "server", 6);
-    }
-    SHA256_Final(digest, &sha_ctx);
+	unsigned char digest[SHA256_DIGEST_LENGTH];
+	SHA256_Init(&sha_ctx);
+
+	if (mpz_cmp(my_dh.PK, peer_pk) < 0) {
+		SHA256_Update(&sha_ctx, my_pub_bytes, my_pub_len);
+		SHA256_Update(&sha_ctx, peer_pub_bytes, peer_pub_len);
+	} else {
+		SHA256_Update(&sha_ctx, peer_pub_bytes, peer_pub_len);
+		SHA256_Update(&sha_ctx, my_pub_bytes, my_pub_len);
+	}
+
+	SHA256_Update(&sha_ctx, "handshake", 9);
+	SHA256_Final(digest, &sha_ctx);
+
 
     unsigned char* sig = NULL;
     size_t sig_len = 0; 
@@ -128,6 +130,8 @@ int handshake(int sockfd, int is_client) {
     const char* peer_key_file = is_client ? "server_public.pem" : "client_public.pem";
     int result = verify_signature(peer_key_file, digest, sizeof(digest), peer_sig, peer_sig_len);
     if (result != 1) error("Signature verification failed");
+
+	fprintf(stderr, "Signature verified successfully.\n");
 
     free(sig);
     free(peer_sig);
