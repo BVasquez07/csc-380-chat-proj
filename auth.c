@@ -40,9 +40,12 @@ err:
     return -4;
 }
 
-int verify_signature(const char* pub_key_path,
-                     const unsigned char* data, size_t data_len,
-                     const unsigned char* sig, size_t sig_len) {
+int verify_signature(const char* pub_key_path, const unsigned char* data, size_t data_len, const unsigned char* sig, size_t sig_len) {
+    char cwd[PATH_MAX];
+    getcwd(cwd, sizeof(cwd));
+    fprintf(stderr, "[DEBUG] CWD: %s\n", cwd);
+    fprintf(stderr, "[DEBUG] Looking for: %s\n", pub_key_path);
+    
     FILE* fp = fopen(pub_key_path, "r");
     if (!fp) return -1;
 

@@ -62,16 +62,14 @@ static void error(const char *msg)
 int handshake(int sockfd, int is_client) {
     dhKey my_dh;
     initKey(&my_dh);
-    dhGenk(&my_dh);  // Generate the ephemeral secret key
+    dhGenk(&my_dh); 
 
-    // Send my public key
+
     char my_pub_buf[2048];
     size_t pub_written = 0;
     Z2BYTES((unsigned char*)my_pub_buf, &pub_written, my_dh.PK);
     if (send(sockfd, my_pub_buf, pub_written, 0) == -1)
         error("send DH public key failed");
-
-    // Receive peer's public key
     unsigned char peer_pub_buf[2048];
     ssize_t received = recv(sockfd, peer_pub_buf, sizeof(peer_pub_buf), 0);
     if (received <= 0) error("recv DH public key failed");
@@ -80,13 +78,10 @@ int handshake(int sockfd, int is_client) {
     mpz_init(peer_pk);
     BYTES2Z(peer_pk, peer_pub_buf, received);
 
-    // Generate shared key material
     unsigned char key_material[64];
     dhFinal(my_dh.SK, my_dh.PK, peer_pk, key_material, sizeof(key_material));
-    memcpy(session_k_enc, key_material, 32);       // First 32 bytes for encryption
-    memcpy(session_k_mac, key_material + 32, 32); // Next 32 bytes for HMAC
-
-    // Debug output for shared keys
+    memcpy(session_k_enc, key_material, 32);      
+    memcpy(session_k_mac, key_material + 32, 32);
     fprintf(stderr, "[DEBUG] Shared AES key: ");
     for (int i = 0; i < 32; i++) fprintf(stderr, "%02x", session_k_enc[i]);
     fprintf(stderr, "\n");
@@ -94,14 +89,12 @@ int handshake(int sockfd, int is_client) {
     for (int i = 0; i < 32; i++) fprintf(stderr, "%02x", session_k_mac[i]);
     fprintf(stderr, "\n");
 
-    // --- Add Transcript Signing and Verification ---
     unsigned char transcript[4096];
     size_t my_pub_len = 0;
     unsigned char* my_pub_bytes = Z2BYTES(NULL, &my_pub_len, my_dh.PK);
     unsigned char* peer_pub_bytes = peer_pub_buf;
     size_t peer_pub_len = received;
 
-    // Hash the transcript (my_pub || peer_pub || role)
     SHA256_CTX sha_ctx;
     unsigned char digest[SHA256_DIGEST_LENGTH];
     SHA256_Init(&sha_ctx);
@@ -116,31 +109,26 @@ int handshake(int sockfd, int is_client) {
     }
     SHA256_Final(digest, &sha_ctx);
 
-    // Sign the transcript hash
     unsigned char* sig = NULL;
     size_t sig_len = 0; 
-    const char* my_key_file = is_client ? "./client_private.pem" : "./server_private.pem";
+    const char* my_key_file = is_client ? "client_private.pem" : "server_private.pem";
     if (sign_data(my_key_file, digest, sizeof(digest), &sig, &sig_len) != 0)
         error("Signing handshake failed");
 
-    // Send signature
     uint16_t net_sig_len = htons(sig_len);
     send(sockfd, &net_sig_len, sizeof(net_sig_len), 0);
     send(sockfd, sig, sig_len, 0);
 
-    // Receive peer's signature
     uint16_t peer_sig_len_net;
     recv(sockfd, &peer_sig_len_net, sizeof(peer_sig_len_net), MSG_WAITALL);
     size_t peer_sig_len = ntohs(peer_sig_len_net);
     unsigned char* peer_sig = malloc(peer_sig_len);
     recv(sockfd, peer_sig, peer_sig_len, MSG_WAITALL);
 
-    // Verify peer's signature
-    const char* peer_key_file = is_client ? "./server_public.pem" : "./client_public.pem";
+    const char* peer_key_file = is_client ? "server_public.pem" : "client_public.pem";
     int result = verify_signature(peer_key_file, digest, sizeof(digest), peer_sig, peer_sig_len);
     if (result != 1) error("Signature verification failed");
 
-    // Cleanup
     free(sig);
     free(peer_sig);
     free(my_pub_bytes);
